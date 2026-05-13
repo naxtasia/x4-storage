@@ -1,94 +1,59 @@
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
+import WebSocket from 'ws';
+import crypto from 'crypto';
 
-const fastify = Fastify({ 
-    bodyLimit: 104857600 // 100MB Limit!
-});
+const fastify = Fastify({ bodyLimit: 52428800 }); // 50MB
 fastify.register(multipart);
 
-const HF_TOKEN = process.env.HF_TOKEN; 
-const REPO = process.env.HF_REPO;    // Format: "kullanici/repo"
+const CONFIG = {
+    NODE_URL: "wss://kullaniciad-spacename.hf.space", // Storage node adresi
+    NODE_SECRET: process.env.XANAXWAY_NODE_SECRET,
+    HF_TOKEN: process.env.HF_TOKEN
+};
 
-// ⚡ X4-CDN GHOST PROXY: Hugging Face Linklerini XanaxWay URL'ine Dönüştür
-fastify.get('/x4/view/:file', async (req, reply) => {
-    const filename = req.params.file;
-    const hfUrl = `https://huggingface.co/datasets/${REPO}/resolve/main/${filename}`;
-
-    try {
-        const response = await fetch(hfUrl, {
-            headers: { "Authorization": `Bearer ${HF_TOKEN}` }
-        });
-
-        if (!response.ok) return reply.status(404).send({ error: "Artifact_Missing" });
-
-        // Hugging Face'den gelen videoyu/resmi ham olarak müşteriye boruluyoruz (Streaming)
-        reply.header('Content-Type', response.headers.get('content-type'));
-        reply.header('Cache-Control', 'public, max-age=31536000, immutable'); // Sınırsız önbellek
-        
-        return reply.send(response.body);
-
-    } catch (e) {
-        return reply.status(500).send({ error: "CDN_Proxy_Failure" });
-    }
-});
-
-fastify.post('/v1/x4/hyper-upload', async (req, reply) => {
+fastify.post('/v1/x4/ssd-upload', async (req, reply) => {
     const start = Date.now();
     const data = await req.file();
-    if (!data) return reply.status(400).send({ error: "No stream" });
+    if (!data) return reply.status(400).send({ error: "Void stream" });
 
+    // 1. Veriyi RAM'de Base64'e dönüştür (Injection için hazırlık)
     const fileBuffer = await data.toBuffer();
-    const filename = `${Math.random().toString(36).substring(2, 7)}_${data.filename}`;
+    const b64 = fileBuffer.toString('base64');
+    const filename = `${crypto.randomBytes(4).toString('hex')}_${data.filename}`;
 
-    try {
-        /**
-         * 🛡️ THE ATOMIC COMMIT HACK (New Version)
-         * Hugging Face'in yeni 'commit' ucuna 'add' aksiyonu fırlatıyoruz.
-         * Hız farkı yaşanmaması için içeriği Base64 olarak gömüyoruz.
-         */
-        const hfCommitUrl = `https://huggingface.co/api/datasets/${REPO}/commit/main`;
-
-        const commitPayload = {
-            summary: `XanaxWay Matrix Injection: ${filename}`,
-            actions: [
-                {
-                    action: "add",
-                    path: filename,
-                    content: fileBuffer.toString('base64') // Dosyayı metne çevirip içine gömüyoruz
-                }
-            ]
-        };
-
-        const hfResponse = await fetch(hfCommitUrl, {
-            method: 'POST',
-            headers: {
-                "Authorization": `Bearer ${HF_TOKEN}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(commitPayload)
+    return new Promise((resolve, reject) => {
+        // 2. TÜNELİ ATEŞLE (API'siz doğrudan makineye)
+        const ws = new WebSocket(CONFIG.NODE_URL, CONFIG.NODE_SECRET, {
+            headers: { 'Authorization': `Bearer ${CONFIG.HF_TOKEN}` }
         });
 
-        if (!hfResponse.ok) {
-            const errorText = await hfResponse.text();
-            return reply.status(hfResponse.status).send({
-                error: "HF_V3_Refused",
-                details: errorText
-            });
-        }
+        ws.on('open', () => {
+            // 🚀 DATA INJECTION (Git commit falan yok, ham SSD fırlatması!)
+            ws.send(JSON.stringify({
+                action: "upload",
+                filename: filename,
+                data: b64
+            }));
+        });
 
-        const latency = Date.now() - start;
-        const cdnUrl = `https://huggingface.co/datasets/${REPO}/resolve/main/${filename}`;
+        ws.on('message', (msg) => {
+            const resp = JSON.parse(msg.toString());
+            if (resp.status === "mummified") {
+                const latency = Date.now() - start;
+                ws.close();
+                
+                // Müşteriye giden tertemiz link
+                resolve({
+                    status: "sealed_on_ssd",
+                    latency_ms: latency,
+                    url: resp.url
+                });
+            }
+        });
 
-        return {
-            status: "sealed",
-            id: `xw-${Math.random().toString(36).substring(2, 9)}`,
-            latency: `${latency}ms`,
-            url: cdnUrl
-        };
-
-    } catch (e) {
-        return reply.status(500).send({ error: "Matrix_Sync_Failure", msg: e.message });
-    }
+        ws.on('error', (e) => reject({ error: "Tunnel Leak", trace: e.message }));
+    });
 });
 
-fastify.listen({ port: 3000, host: '0.0.0.0' }, () => console.log("🔥 X4-V3 Hyper-Direct Active."));
+fastify.listen({ port: 3000, host: '0.0.0.0' });
