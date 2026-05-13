@@ -7,7 +7,7 @@ const fastify = Fastify({ bodyLimit: 52428800 }); // 50MB
 fastify.register(multipart);
 
 const CONFIG = {
-    NODE_URL: "wss://kullaniciad-spacename.hf.space", // Storage node adresi
+    NODE_URL: "wss://xanaxwaycloud-xanaxway-storage-cluster.hf.space", // Storage node adresi
     NODE_SECRET: process.env.XANAXWAY_NODE_SECRET,
     HF_TOKEN: process.env.HF_TOKEN
 };
