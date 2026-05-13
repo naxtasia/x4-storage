@@ -9,6 +9,29 @@ fastify.register(multipart);
 const HF_TOKEN = process.env.HF_TOKEN; 
 const REPO = process.env.HF_REPO;    // Format: "kullanici/repo"
 
+// ⚡ X4-CDN GHOST PROXY: Hugging Face Linklerini XanaxWay URL'ine Dönüştür
+fastify.get('/x4/view/:file', async (req, reply) => {
+    const filename = req.params.file;
+    const hfUrl = `https://huggingface.co/datasets/${REPO}/resolve/main/${filename}`;
+
+    try {
+        const response = await fetch(hfUrl, {
+            headers: { "Authorization": `Bearer ${HF_TOKEN}` }
+        });
+
+        if (!response.ok) return reply.status(404).send({ error: "Artifact_Missing" });
+
+        // Hugging Face'den gelen videoyu/resmi ham olarak müşteriye boruluyoruz (Streaming)
+        reply.header('Content-Type', response.headers.get('content-type'));
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable'); // Sınırsız önbellek
+        
+        return reply.send(response.body);
+
+    } catch (e) {
+        return reply.status(500).send({ error: "CDN_Proxy_Failure" });
+    }
+});
+
 fastify.post('/v1/x4/hyper-upload', async (req, reply) => {
     const start = Date.now();
     const data = await req.file();
